@@ -7,14 +7,14 @@ import select
 import argparse
 from config import *
 
-# --------- Helpers de framing (mensagens length-prefixed) ----------
+# --------- Helpers de framing ---------
 def send_json(sock, obj):
     data = json.dumps(obj, separators=(",", ":")).encode("utf-8")
     header = struct.pack("!I", len(data))
     sock.sendall(header + data)
 
+# Consome um bytearray e rende mensagens JSON completas (se houver)
 def recv_frames(buffer):
-    """Consome um bytearray e rende mensagens JSON completas (se houver)."""
     out = []
     while True:
         if len(buffer) < 4:
@@ -27,7 +27,7 @@ def recv_frames(buffer):
         out.append(json.loads(payload.decode("utf-8")))
     return out
 
-# ---------------------------- Estado -------------------------------
+# --------- Estado ---------
 class GameState:
     def __init__(self):
         self.reset_full()
@@ -61,7 +61,7 @@ class GameState:
             "game_over": self.game_over,
         }
 
-# ------------------------ Utilidades ------------------------
+# --------- Utilidades ---------
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
@@ -71,7 +71,7 @@ def paddle_rect(x_left, y_top):
 def aabb_overlap(ax, ay, aw, ah, bx, by, bw, bh):
     return (ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by)
 
-# ------------------------ Servidor --------------------------
+# --------- Servidor ---------
 def main():
     parser = argparse.ArgumentParser(description="Hockey I - Servidor")
     parser.add_argument("--host", default="0.0.0.0", help="Endereço de escuta (default: 0.0.0.0)")
@@ -81,7 +81,7 @@ def main():
     listen_host = args.host
     listen_port = args.port
 
-    print(f"[server] Iniciando em {listen_host}:{listen_port}")
+    print(f"[Server] Iniciando em {listen_host}:{listen_port}")
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((listen_host, listen_port))
@@ -92,12 +92,12 @@ def main():
     buffers = {}
     inputs = {}
 
-    print("[server] Aguardando jogadores...")
+    print("[Server] Aguardando jogadores...")
 
-    # Aceita até 2 jogadores; envia hello imediatamente ao conectar
+    # Aceita até 2 jogadores e envia hello imediatamente ao conectar
     while len(clients) < 2:
         conn, addr = server.accept()
-        # Opcional: reduzir latência
+        # reduzir latência
         try:
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         except Exception:
@@ -108,7 +108,7 @@ def main():
         inputs[conn] = {"up": False, "down": False}
 
         player_id = len(clients)  # 1 ou 2
-        print(f"[server] Cliente conectado: {addr} -> player {player_id} (total {len(clients)}/2)")
+        print(f"[Server] Cliente conectado: {addr} -> player {player_id} (total {len(clients)}/2)")
 
         send_json(conn, {
             "type": "hello",
@@ -118,14 +118,14 @@ def main():
             "waiting": len(clients) < 2
         })
 
-    # Ambos conectados: avisa início de partida (opcional, mas útil)
+    # Ambos conectados: avisa início de partida
     for c in clients:
         try:
             send_json(c, {"type": "match_start"})
         except:
             pass
 
-    print("[server] Dois jogadores conectados. Iniciando jogo!")
+    print("[Server] Dois jogadores conectados. Iniciando jogo!")
 
     state = GameState()
     state.game_started_at = time.monotonic()
@@ -156,8 +156,20 @@ def main():
                         inp = msg.get("keys", {})
                         inputs[sock]["up"] = bool(inp.get("up", False))
                         inputs[sock]["down"] = bool(inp.get("down", False))
+                    elif msg.get("type") == "bye":
+                        print(f"[Server] Cliente pediu para sair: {sock.getpeername()}")
+                        # Avisa o outro cliente (se existir)
+                        for oc in clients:
+                            if oc is not sock:
+                                try:
+                                    send_json(oc, {"type": "opponent_left"})
+                                except Exception as e:
+                                    print(f"[Servidor] Erro ao tentar avisar jogador que o outro saiu: {e}")
+                        # Encerra a partida imediatamente
+                        running = False
+                        break
             except Exception as e:
-                print(f"[server] Erro/saída do cliente: {e}")
+                print(f"[Server] Erro/saída do cliente: {e}")
                 running = False
 
         if not running:
@@ -176,8 +188,8 @@ def main():
             state.ball_y += state.ball_vy * dt
 
             # colisão com teto/solo
-            top = MARGIN
-            bottom = HEIGHT - MARGIN
+            top = MARGIN - 10
+            bottom = HEIGHT - MARGIN + 10
             if state.ball_y - BALL_SIZE/2 < top:
                 state.ball_y = top + BALL_SIZE/2
                 state.ball_vy *= -1
@@ -239,7 +251,7 @@ def main():
             try:
                 send_json(c, snap)
             except Exception as e:
-                print(f"[server] Falha ao enviar para cliente: {e}")
+                print(f"[Server] Falha ao enviar para cliente: {e}")
                 running = False
 
         if state.game_over or not running:
@@ -252,7 +264,7 @@ def main():
         if spent < frame_budget:
             time.sleep(frame_budget - spent)
 
-    print("[server] Encerrando conexões.")
+    print("[Server] Encerrando conexões.")
     for c in clients:
         try:
             c.close()
