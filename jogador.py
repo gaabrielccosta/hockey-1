@@ -72,7 +72,7 @@ def main():
     pygame.display.set_caption("Hockey I")
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont("Arial", 22, bold=True)
+    font = pygame.font.SysFont("Arial", 16, bold=True)
     bigfont = pygame.font.SysFont("Arial", 36, bold=True)
 
     # Conecta
@@ -182,10 +182,16 @@ def main():
         pygame.draw.line(screen, (80, 80, 80), (WIDTH//2, MARGIN), (WIDTH//2, HEIGHT-MARGIN), 1)
 
         # Paddles
-        p1x = MARGIN + 10
-        p2x = WIDTH - MARGIN - PADDLE_W - 10
+        p1x = MARGIN + 80
+        p2x = WIDTH - MARGIN - PADDLE_W - 80
         pygame.draw.rect(screen, (240, 240, 240), (p1x, int(paddles["p1"]["y"]), PADDLE_W, PADDLE_H))
         pygame.draw.rect(screen, (240, 240, 240), (p2x, int(paddles["p2"]["y"]), PADDLE_W, PADDLE_H))
+
+        # Goals
+        g1x = MARGIN + 40
+        g2x = WIDTH - MARGIN - GOAL_W - 40
+        pygame.draw.rect(screen, (240, 240, 240), (g1x, HEIGHT // 2 - GOAL_H // 2, GOAL_W, GOAL_H))
+        pygame.draw.rect(screen, (240, 240, 240), (g2x, HEIGHT // 2 - GOAL_H // 2, GOAL_W, GOAL_H))
 
         # Bola
         pygame.draw.rect(screen, (255, 204, 0),

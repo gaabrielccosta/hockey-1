@@ -131,6 +131,21 @@ def main():
     state.game_started_at = time.monotonic()
     last_time = time.monotonic()
 
+    # --- Geometria das goleiras ---
+    # Boca do gol centralizada verticalmente
+    GOAL_Y0 = HEIGHT // 2 - GOAL_H // 2
+    GOAL_Y1 = HEIGHT // 2 + GOAL_H // 2
+
+    # Linha de gol (frente da goleira) colada às “paredes internas” do rink
+    LEFT_GOAL_X_FRONT  = MARGIN + 40
+    RIGHT_GOAL_X_FRONT = WIDTH - MARGIN - 40
+
+    # Fundo da goleira (parede de trás) a GOAL_W de profundidade
+    LEFT_GOAL_X_BACK   = LEFT_GOAL_X_FRONT  - GOAL_W
+    RIGHT_GOAL_X_BACK  = RIGHT_GOAL_X_FRONT + GOAL_W
+
+    POST_T = 6.0
+
     running = True
     while running:
         # Cálculo de tempo
@@ -184,6 +199,9 @@ def main():
             state.p2_y = clamp(state.p2_y + dy2, MARGIN, HEIGHT - MARGIN - PADDLE_H)
 
             # mover bola
+            prev_x = state.ball_x
+            prev_y = state.ball_y
+
             state.ball_x += state.ball_vx * dt
             state.ball_y += state.ball_vy * dt
 
@@ -198,8 +216,8 @@ def main():
                 state.ball_vy *= -1
 
             # colisão com paddles
-            p1x = MARGIN
-            p2x = WIDTH - MARGIN - PADDLE_W
+            p1x = MARGIN + 80
+            p2x = WIDTH - MARGIN - PADDLE_W - 80
 
             # Recalcula retângulo da bola antes de cada checagem
             ball_rect = (
@@ -237,13 +255,71 @@ def main():
                 state.ball_vy =  speed * math.sin(ang)
                 state.ball_x = p2x - BALL_SIZE/2 - 1
 
-            # gol?
-            if state.ball_x < 0:
-                state.score2 += 1
-                state.reset_ball(to_left=False)
-            elif state.ball_x > WIDTH:
-                state.score1 += 1
-                state.reset_ball(to_left=True)
+            # --- GOLS por CRUZAMENTO e REBATES nas goleiras ---
+            r = BALL_SIZE / 2
+
+            bx_left_prev  = prev_x - r
+            bx_right_prev = prev_x + r
+            bx_left_cur   = state.ball_x - r
+            bx_right_cur  = state.ball_x + r
+
+            by_prev_top = prev_y - r    # “topo” da bola no frame anterior
+            by_cur_top  = state.ball_y - r
+            by_prev_bot = prev_y + r    # “base” da bola no frame anterior
+            by_cur_bot  = state.ball_y + r
+
+            scored = False
+
+            # 1) Gol à ESQUERDA: cruzou a linha pela frente e dentro da boca
+            if state.ball_vx < 0 and bx_left_prev > LEFT_GOAL_X_FRONT and bx_left_cur <= LEFT_GOAL_X_FRONT:
+                denom = (bx_left_prev - bx_left_cur) or 1e-9
+                t = (bx_left_prev - LEFT_GOAL_X_FRONT) / denom
+                y_cross = prev_y + t * (state.ball_y - prev_y)
+                if GOAL_Y0 <= y_cross <= GOAL_Y1:
+                    state.score2 += 1
+                    state.reset_ball(to_left=False)
+                    scored = True
+
+            # 2) Gol à DIREITA: cruzou a linha pela frente e dentro da boca
+            elif state.ball_vx > 0 and bx_right_prev < RIGHT_GOAL_X_FRONT and bx_right_cur >= RIGHT_GOAL_X_FRONT:
+                denom = (bx_right_cur - bx_right_prev) or 1e-9
+                t = (RIGHT_GOAL_X_FRONT - bx_right_prev) / denom
+                y_cross = prev_y + t * (state.ball_y - prev_y)
+                if GOAL_Y0 <= y_cross <= GOAL_Y1:
+                    state.score1 += 1
+                    state.reset_ball(to_left=True)
+                    scored = True
+
+            if not scored:
+                # 3) Fundo da rede: rebate na parede de trás se entrar atrás do gol
+                if bx_left_cur <= LEFT_GOAL_X_BACK - 30:
+                    state.ball_vx = abs(state.ball_vx)
+                    state.ball_x  = LEFT_GOAL_X_BACK - 30 + r + 0.1
+
+                if bx_right_cur >= RIGHT_GOAL_X_BACK + 30:
+                    state.ball_vx = -abs(state.ball_vx)
+                    state.ball_x  = RIGHT_GOAL_X_BACK + 30 - r - 0.1
+
+                # 4) Travessão e base por CRUZAMENTO VERTICAL dentro da profundidade do gol
+                # Faixas finas centradas na linha de gol da frente (boca)
+                left_front_band_prev  = (LEFT_GOAL_X_FRONT - POST_T) <= prev_x        <= (LEFT_GOAL_X_FRONT + POST_T)
+                left_front_band_cur   = (LEFT_GOAL_X_FRONT - POST_T) <= state.ball_x   <= (LEFT_GOAL_X_FRONT + POST_T)
+                right_front_band_prev = (RIGHT_GOAL_X_FRONT - POST_T) <= prev_x       <= (RIGHT_GOAL_X_FRONT + POST_T)
+                right_front_band_cur  = (RIGHT_GOAL_X_FRONT - POST_T) <= state.ball_x  <= (RIGHT_GOAL_X_FRONT + POST_T)
+
+                near_any_front = (left_front_band_prev or left_front_band_cur or
+                                right_front_band_prev or right_front_band_cur)
+
+                if near_any_front:
+                    # Bate no TRAVESSÃO (topo da boca) só se cruzar vindo de baixo pra cima
+                    if state.ball_vy < 0 and by_prev_top > GOAL_Y0 and by_cur_top <= GOAL_Y0:
+                        state.ball_y = GOAL_Y0 + r + 0.1
+                        state.ball_vy = abs(state.ball_vy)
+
+                    # Bate na BASE da boca só se cruzar vindo de cima pra baixo
+                    elif state.ball_vy > 0 and by_prev_bot < GOAL_Y1 and by_cur_bot >= GOAL_Y1:
+                        state.ball_y = GOAL_Y1 - r - 0.1
+                        state.ball_vy = -abs(state.ball_vy)
 
         # -------- Broadcast do estado --------
         snap = state.snapshot(remaining if not state.game_over else 0)
@@ -255,7 +331,7 @@ def main():
                 running = False
 
         if state.game_over or not running:
-            time.sleep(1.0)
+            time.sleep(5.0)
             break
 
         # Tick ~FPS
