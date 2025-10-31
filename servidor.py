@@ -86,7 +86,7 @@ def main():
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((listen_host, listen_port))
     server.listen(2)
-    server.setblocking(True)
+    server.settimeout(0.5)
 
     clients = []
     buffers = {}
@@ -95,28 +95,39 @@ def main():
     print("[Server] Aguardando jogadores...")
 
     # Aceita até 2 jogadores e envia hello imediatamente ao conectar
-    while len(clients) < 2:
-        conn, addr = server.accept()
-        # reduzir latência
-        try:
-            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        except Exception:
-            pass
-        conn.setblocking(False)
-        clients.append(conn)
-        buffers[conn] = bytearray()
-        inputs[conn] = {"up": False, "down": False}
+    try:
+        while len(clients) < 2:
+            try:
+                conn, addr = server.accept()  # agora com timeout
+            except socket.timeout:
+                continue  # volta pro topo do while, permitindo Ctrl+C
+            # reduzir latência
+            try:
+                conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except Exception:
+                pass
+            conn.setblocking(False)
+            clients.append(conn)
+            buffers[conn] = bytearray()
+            inputs[conn] = {"up": False, "down": False}
 
-        player_id = len(clients)  # 1 ou 2
-        print(f"[Server] Cliente conectado: {addr} -> player {player_id} (total {len(clients)}/2)")
+            player_id = len(clients)  # 1 ou 2
+            print(f"[Server] Cliente conectado: {addr} -> player {player_id} (total {len(clients)}/2)")
 
-        send_json(conn, {
-            "type": "hello",
-            "player": player_id,
-            "width": WIDTH,
-            "height": HEIGHT,
-            "waiting": len(clients) < 2
-        })
+            send_json(conn, {
+                "type": "hello",
+                "player": player_id,
+                "width": WIDTH,
+                "height": HEIGHT,
+                "waiting": len(clients) < 2
+            })
+    except KeyboardInterrupt:
+        print("\n[Server] Interrompido por Ctrl+C. Encerrando...")
+        for c in clients:
+            try: c.close()
+            except: pass
+        server.close()
+        return
 
     # Ambos conectados: avisa início de partida
     for c in clients:
@@ -137,14 +148,14 @@ def main():
     GOAL_Y1 = HEIGHT // 2 + GOAL_H // 2
 
     # Linha de gol (frente da goleira) colada às “paredes internas” do rink
-    LEFT_GOAL_X_FRONT  = MARGIN + 40
+    LEFT_GOAL_X_FRONT = MARGIN + 40
     RIGHT_GOAL_X_FRONT = WIDTH - MARGIN - 40
 
     # Fundo da goleira (parede de trás) a GOAL_W de profundidade
-    LEFT_GOAL_X_BACK   = LEFT_GOAL_X_FRONT  - GOAL_W
-    RIGHT_GOAL_X_BACK  = RIGHT_GOAL_X_FRONT + GOAL_W
+    LEFT_GOAL_X_BACK = LEFT_GOAL_X_FRONT - GOAL_W
+    RIGHT_GOAL_X_BACK = RIGHT_GOAL_X_FRONT + GOAL_W
 
-    POST_T = 6.0
+    POST_T = BALL_SIZE / 2 + 1
 
     running = True
     while running:
@@ -159,12 +170,13 @@ def main():
             state.game_over = True
 
         # -------- Receber entradas --------
+        # (lidos, escritos, excepcionais) - só precisamos dos lidos
         rlist, _, _ = select.select(clients, [], [], 0)
         for sock in rlist:
             try:
                 chunk = sock.recv(4096)
                 if not chunk:
-                    raise ConnectionError("cliente desconectou")
+                    raise ConnectionError("Cliente desconectou")
                 buffers[sock] += chunk
                 for msg in recv_frames(buffers[sock]):
                     if msg.get("type") == "input":
@@ -175,6 +187,7 @@ def main():
                         print(f"[Server] Cliente pediu para sair: {sock.getpeername()}")
                         # Avisa o outro cliente (se existir)
                         for oc in clients:
+                            # Se não for o socket atual
                             if oc is not sock:
                                 try:
                                     send_json(oc, {"type": "opponent_left"})
@@ -192,20 +205,20 @@ def main():
 
         # -------- Atualizar jogo --------
         if not state.game_over:
-            # mover paddles
+            # Mover paddles
             dy1 = (PADDLE_SPEED * dt) * (-1 if inputs[clients[0]]["up"] else (1 if inputs[clients[0]]["down"] else 0))
             dy2 = (PADDLE_SPEED * dt) * (-1 if inputs[clients[1]]["up"] else (1 if inputs[clients[1]]["down"] else 0))
             state.p1_y = clamp(state.p1_y + dy1, MARGIN, HEIGHT - MARGIN - PADDLE_H)
             state.p2_y = clamp(state.p2_y + dy2, MARGIN, HEIGHT - MARGIN - PADDLE_H)
 
-            # mover bola
+            # Mover bola
             prev_x = state.ball_x
             prev_y = state.ball_y
 
             state.ball_x += state.ball_vx * dt
             state.ball_y += state.ball_vy * dt
 
-            # colisão com teto/solo
+            # Colisão com teto/solo
             top = MARGIN - 5
             bottom = HEIGHT - MARGIN + 5
             if state.ball_y - BALL_SIZE/2 < top:
@@ -215,7 +228,7 @@ def main():
                 state.ball_y = bottom - BALL_SIZE/2
                 state.ball_vy *= -1
 
-            # colisão com paddles
+            # Colisão com paddles
             p1x = MARGIN + 80
             p2x = WIDTH - MARGIN - PADDLE_W - 80
 
@@ -233,9 +246,9 @@ def main():
                 bx, by, bw, bh = ball_rect
                 px, py, pw, ph = p1_rect
 
-                overlap_left   = (bx + bw) - px
-                overlap_right  = (px + pw) - bx
-                overlap_top    = (by + bh) - py
+                overlap_left = (bx + bw) - px
+                overlap_right = (px + pw) - bx
+                overlap_top = (by + bh) - py
                 overlap_bottom = (py + ph) - by
 
                 min_ox = min(overlap_left, overlap_right)
@@ -246,23 +259,23 @@ def main():
                 if min_oy < min_ox:
                     # --- Colisão no TOPO/BASE do paddle: reflete vy e reposiciona fora ---
                     if overlap_top < overlap_bottom:
-                        # bateu no topo do paddle
+                        # Bateu no topo do paddle
                         state.ball_y = py - r - 0.1
                         state.ball_vy = -abs(state.ball_vy) if abs(state.ball_vy) > 1e-6 else -(BALL_SPEED * 0.6)
                     else:
-                        # bateu na base do paddle
+                        # Bateu na base do paddle
                         state.ball_y = py + ph + r + 0.1
                         state.ball_vy =  abs(state.ball_vy) if abs(state.ball_vy) > 1e-6 else  (BALL_SPEED * 0.6)
 
-                    # Pequena "pimenta" horizontal baseada na altura do impacto (opcional, mantém sensação de controle)
+                    # Pequeno empurrão horizontal baseado na altura do impacto (mantém sensação de controle)
                     rel = ((state.ball_y) - (state.p1_y + PADDLE_H/2)) / (PADDLE_H/2)
                     rel = clamp(rel, -1, 1)
                     state.ball_vx = clamp(state.ball_vx + rel * (BALL_SPEED_INC_ON_HIT * 0.2), -BALL_SPEED_MAX, BALL_SPEED_MAX)
 
                 else:
-                    # --- Colisão LATERAL (frente/trás) -> mantém sua lógica existente ---
+                    # --- Colisão LATERAL (frente/trás)
                     if state.ball_vx < 0:
-                        # frente (bola indo para a esquerda)
+                        # Frente (bola indo para a esquerda)
                         rel = ((state.ball_y) - (state.p1_y + PADDLE_H/2)) / (PADDLE_H/2)
                         rel = clamp(rel, -1, 1)
                         ang = math.radians(BALL_ANGLE_MAX_DEG) * rel
@@ -271,7 +284,7 @@ def main():
                         state.ball_vy =  speed * math.sin(ang)
                         state.ball_x = p1x + PADDLE_W + r + 1
                     else:
-                        # por trás (bola indo para a direita)
+                        # Por trás (bola indo para a direita)
                         rel = ((state.ball_y) - (state.p1_y + PADDLE_H/2)) / (PADDLE_H/2)
                         rel = clamp(rel, -1, 1)
                         ang = math.radians(BALL_ANGLE_MAX_DEG) * rel
@@ -293,9 +306,9 @@ def main():
                 bx, by, bw, bh = ball_rect
                 px, py, pw, ph = p2_rect
 
-                overlap_left   = (bx + bw) - px
-                overlap_right  = (px + pw) - bx
-                overlap_top    = (by + bh) - py
+                overlap_left = (bx + bw) - px
+                overlap_right = (px + pw) - bx
+                overlap_top = (by + bh) - py
                 overlap_bottom = (py + ph) - by
 
                 min_ox = min(overlap_left, overlap_right)
@@ -319,7 +332,7 @@ def main():
                 else:
                     # --- Colisão LATERAL (frente/trás) ---
                     if state.ball_vx > 0:
-                        # frente (bola indo para a direita)
+                        # Frente (bola indo para a direita)
                         rel = ((state.ball_y) - (state.p2_y + PADDLE_H/2)) / (PADDLE_H/2)
                         rel = clamp(rel, -1, 1)
                         ang = math.radians(BALL_ANGLE_MAX_DEG) * rel
@@ -328,7 +341,7 @@ def main():
                         state.ball_vy =  speed * math.sin(ang)
                         state.ball_x = p2x - r - 1
                     else:
-                        # por trás (bola indo para a esquerda)
+                        # Por trás (bola indo para a esquerda)
                         rel = ((state.ball_y) - (state.p2_y + PADDLE_H/2)) / (PADDLE_H/2)
                         rel = clamp(rel, -1, 1)
                         ang = math.radians(BALL_ANGLE_MAX_DEG) * rel
@@ -340,15 +353,15 @@ def main():
             # --- GOLS por CRUZAMENTO e REBATES nas goleiras ---
             r = BALL_SIZE / 2
 
-            bx_left_prev  = prev_x - r
+            bx_left_prev = prev_x - r
             bx_right_prev = prev_x + r
-            bx_left_cur   = state.ball_x - r
-            bx_right_cur  = state.ball_x + r
+            bx_left_cur = state.ball_x - r
+            bx_right_cur = state.ball_x + r
 
-            by_prev_top = prev_y - r    # “topo” da bola no frame anterior
-            by_cur_top  = state.ball_y - r
-            by_prev_bot = prev_y + r    # “base” da bola no frame anterior
-            by_cur_bot  = state.ball_y + r
+            by_prev_top = prev_y - r # “topo” da bola no frame anterior
+            by_cur_top = state.ball_y - r
+            by_prev_bot = prev_y + r # “base” da bola no frame anterior
+            by_cur_bot = state.ball_y + r
 
             scored = False
 
@@ -404,10 +417,10 @@ def main():
 
                 # 4) Travessão e base por CRUZAMENTO VERTICAL dentro da profundidade do gol
                 # Faixas finas centradas na linha de gol da frente (boca)
-                left_front_band_prev  = (LEFT_GOAL_X_FRONT - POST_T) <= prev_x        <= (LEFT_GOAL_X_FRONT + POST_T)
-                left_front_band_cur   = (LEFT_GOAL_X_FRONT - POST_T) <= state.ball_x   <= (LEFT_GOAL_X_FRONT + POST_T)
-                right_front_band_prev = (RIGHT_GOAL_X_FRONT - POST_T) <= prev_x       <= (RIGHT_GOAL_X_FRONT + POST_T)
-                right_front_band_cur  = (RIGHT_GOAL_X_FRONT - POST_T) <= state.ball_x  <= (RIGHT_GOAL_X_FRONT + POST_T)
+                left_front_band_prev = (LEFT_GOAL_X_FRONT - POST_T) <= prev_x <= (LEFT_GOAL_X_FRONT + POST_T)
+                left_front_band_cur = (LEFT_GOAL_X_FRONT - POST_T) <= state.ball_x <= (LEFT_GOAL_X_FRONT + POST_T)
+                right_front_band_prev = (RIGHT_GOAL_X_FRONT - POST_T) <= prev_x <= (RIGHT_GOAL_X_FRONT + POST_T)
+                right_front_band_cur = (RIGHT_GOAL_X_FRONT - POST_T) <= state.ball_x <= (RIGHT_GOAL_X_FRONT + POST_T)
 
                 near_any_front = (left_front_band_prev or left_front_band_cur or
                                 right_front_band_prev or right_front_band_cur)
@@ -433,7 +446,7 @@ def main():
                 running = False
 
         if state.game_over or not running:
-            time.sleep(5.0)
+            time.sleep(7.0)
             break
 
         # Tick ~FPS

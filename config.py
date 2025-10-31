@@ -21,7 +21,7 @@ BALL_SPEED_MAX = 560.0
 BALL_SPEED_INC_ON_HIT = 12.0
 BALL_ANGLE_MAX_DEG = 60  # limita desvio vertical ao rebater
 
-# config.py
+# Cores
 COLOR_BG = (48, 48, 54)
 COLOR_FIELD_BORDER = (220, 220, 220)
 COLOR_FIELD_MIDLINE = (80, 80, 80)

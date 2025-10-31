@@ -7,7 +7,7 @@ import time
 import argparse
 from config import *
 
-# ------------- Helpers framing -------------
+# Envia informações para o servidor
 def send_json(sock, obj):
     data = json.dumps(obj, separators=(",", ":")).encode("utf-8")
     header = struct.pack("!I", len(data))
@@ -20,7 +20,7 @@ def pump_recv(sock, buffer):
         while True:
             chunk = sock.recv(4096)
             if not chunk:
-                raise ConnectionError("conexão fechada")
+                raise ConnectionError("Conexão fechada")
             buffer += chunk
             while True:
                 if len(buffer) < 4:
@@ -78,11 +78,11 @@ def main():
     # Conecta
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
    
-    # Reduzir latência
+    # Reduzir latência (mandar tudo na hora, sem esperar juntar bytes para enviar tudo junto)
     try:
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     except Exception:
-        print("Erro ao tentasr reduzir latência.")
+        print("Erro ao tentar reduzir latência.")
         pass
 
     print(f"[Client] Conectando em {server_host}:{server_port} ...")
@@ -186,10 +186,10 @@ def main():
         h2 = PADDLE_H // 3
         h3 = PADDLE_H - h1 - h2
 
-        # raios seguros (não podem passar de metade de w/h do retângulo)
+        # Raios seguros (não podem passar de metade de w/h do retângulo)
         r_full = min(PADDLE_W // 2, PADDLE_H // 2)
-        r_top  = min(PADDLE_W // 2, h1 // 2)
-        r_bot  = min(PADDLE_W // 2, h3 // 2)
+        r_top = min(PADDLE_W // 2, h1 // 2)
+        r_bot = min(PADDLE_W // 2, h3 // 2)
 
         # P1 (esquerda) – canto superior e inferior arredondados no paddle inteiro
         p1x = MARGIN + 80
@@ -204,20 +204,20 @@ def main():
         p2x = WIDTH - MARGIN - PADDLE_W - 80
         p2y = int(paddles["p2"]["y"])
 
-        # topo (arredonda só os cantos de cima)
+        # Topo (arredonda só os cantos de cima)
         pygame.draw.rect(
             screen, COLOR_PADDLE2_1,
             (p2x, p2y, PADDLE_W, h1),
             border_top_left_radius=r_top, border_top_right_radius=r_top
         )
 
-        # meio (sem arredondamento)
+        # Meio (sem arredondamento)
         pygame.draw.rect(
             screen, COLOR_PADDLE2_2,
             (p2x, p2y + h1, PADDLE_W, h2)
         )
 
-        # base (arredonda só os cantos de baixo)
+        # Base (arredonda só os cantos de baixo)
         pygame.draw.rect(
             screen, COLOR_PADDLE2_3,
             (p2x, p2y + h1 + h2, PADDLE_W, h3),
@@ -243,7 +243,7 @@ def main():
         screen.blit(time_text, (WIDTH - time_text.get_width() - 12, 8))
 
         # Etiqueta do jogador local
-        who = "Você é: P1 (esquerda)" if my_player == 1 else "Você é: P2 (direita)"
+        who = "Você é: P1 (Inter)" if my_player == 1 else "Você é: P2 (Grêmio)"
         me_text = font.render(who, True, COLOR_ME)
         screen.blit(me_text, (12, 8))
 
@@ -252,9 +252,9 @@ def main():
             screen.blit(over, (WIDTH//2 - over.get_width()//2, HEIGHT//2 - over.get_height()//2 - 20))
             winner = "Empate!"
             if score["p1"] > score["p2"]:
-                winner = "Vitória do P1"
+                winner = "Vitória do Inter"
             elif score["p2"] > score["p1"]:
-                winner = "Vitória do P2"
+                winner = "Vitória do Grêmio"
             wtxt = font.render(winner, True, COLOR_WINNER)
             screen.blit(wtxt, (WIDTH//2 - wtxt.get_width()//2, HEIGHT//2 + 20))
 
