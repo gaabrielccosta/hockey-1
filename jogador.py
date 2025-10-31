@@ -175,48 +175,87 @@ def main():
             running = False
 
         # Render
-        screen.fill((14, 14, 18))
+        screen.fill(COLOR_BG)
 
         # Linhas de campo
-        pygame.draw.rect(screen, (220, 220, 220), (MARGIN-2, MARGIN-2, WIDTH-2*MARGIN+4, HEIGHT-2*MARGIN+4), 2)
-        pygame.draw.line(screen, (80, 80, 80), (WIDTH//2, MARGIN), (WIDTH//2, HEIGHT-MARGIN), 1)
+        pygame.draw.rect(screen, COLOR_FIELD_BORDER, (MARGIN-2, MARGIN-2, WIDTH-2*MARGIN+4, HEIGHT-2*MARGIN+4), 2)
+        pygame.draw.line(screen, COLOR_FIELD_MIDLINE, (WIDTH//2, MARGIN), (WIDTH//2, HEIGHT-MARGIN), 1)
 
         # Paddles
-        p1x = MARGIN + 80
-        p2x = WIDTH - MARGIN - PADDLE_W - 80
-        pygame.draw.rect(screen, (240, 240, 240), (p1x, int(paddles["p1"]["y"]), PADDLE_W, PADDLE_H))
-        pygame.draw.rect(screen, (240, 240, 240), (p2x, int(paddles["p2"]["y"]), PADDLE_W, PADDLE_H))
+        h1 = PADDLE_H // 3
+        h2 = PADDLE_H // 3
+        h3 = PADDLE_H - h1 - h2
 
-        # Goals
+        # raios seguros (não podem passar de metade de w/h do retângulo)
+        r_full = min(PADDLE_W // 2, PADDLE_H // 2)
+        r_top  = min(PADDLE_W // 2, h1 // 2)
+        r_bot  = min(PADDLE_W // 2, h3 // 2)
+
+        # P1 (esquerda) – canto superior e inferior arredondados no paddle inteiro
+        p1x = MARGIN + 80
+        p1y = int(paddles["p1"]["y"])
+        pygame.draw.rect(
+            screen, COLOR_PADDLE,
+            (p1x, p1y, PADDLE_W, PADDLE_H),
+            border_radius=r_full
+        )
+
+        # P2 (direita) – três faixas com topo e base arredondados
+        p2x = WIDTH - MARGIN - PADDLE_W - 80
+        p2y = int(paddles["p2"]["y"])
+
+        # topo (arredonda só os cantos de cima)
+        pygame.draw.rect(
+            screen, COLOR_PADDLE2_1,
+            (p2x, p2y, PADDLE_W, h1),
+            border_top_left_radius=r_top, border_top_right_radius=r_top
+        )
+
+        # meio (sem arredondamento)
+        pygame.draw.rect(
+            screen, COLOR_PADDLE2_2,
+            (p2x, p2y + h1, PADDLE_W, h2)
+        )
+
+        # base (arredonda só os cantos de baixo)
+        pygame.draw.rect(
+            screen, COLOR_PADDLE2_3,
+            (p2x, p2y + h1 + h2, PADDLE_W, h3),
+            border_bottom_left_radius=r_bot, border_bottom_right_radius=r_bot
+        )
+
+        # Goleiras
         g1x = MARGIN + 40
         g2x = WIDTH - MARGIN - GOAL_W - 40
-        pygame.draw.rect(screen, (240, 240, 240), (g1x, HEIGHT // 2 - GOAL_H // 2, GOAL_W, GOAL_H))
-        pygame.draw.rect(screen, (240, 240, 240), (g2x, HEIGHT // 2 - GOAL_H // 2, GOAL_W, GOAL_H))
+        pygame.draw.rect(screen, COLOR_GOAL, (g1x, HEIGHT // 2 - GOAL_H // 2, GOAL_W, GOAL_H))
+        pygame.draw.rect(screen, COLOR_GOAL, (g2x, HEIGHT // 2 - GOAL_H // 2, GOAL_W, GOAL_H))
 
         # Bola
-        pygame.draw.rect(screen, (255, 204, 0),
-                         (int(ball["x"] - BALL_SIZE/2), int(ball["y"] - BALL_SIZE/2), BALL_SIZE, BALL_SIZE))
+        cx = int(ball["x"])
+        cy = int(ball["y"])
+        r = BALL_SIZE // 2
+        pygame.draw.circle(screen, COLOR_BALL, (cx, cy), r)
 
         # Placar e tempo
-        score_text = font.render(f"{score['p1']}  :  {score['p2']}", True, (250, 250, 250))
-        time_text = font.render(f"Tempo: {time_left:03d}s", True, (180, 220, 255))
+        score_text = font.render(f"{score['p1']}  :  {score['p2']}", True, COLOR_SCORE)
+        time_text  = font.render(f"Tempo: {time_left:03d}s", True, COLOR_TIME)
         screen.blit(score_text, (WIDTH//2 - score_text.get_width()//2, 8))
         screen.blit(time_text, (WIDTH - time_text.get_width() - 12, 8))
 
         # Etiqueta do jogador local
         who = "Você é: P1 (esquerda)" if my_player == 1 else "Você é: P2 (direita)"
-        me_text = font.render(who, True, (200, 255, 200))
+        me_text = font.render(who, True, COLOR_ME)
         screen.blit(me_text, (12, 8))
 
         if game_over:
-            over = bigfont.render("FIM DE JOGO", True, (255, 120, 120))
+            over = bigfont.render("FIM DE JOGO", True, COLOR_GAMEOVER)
             screen.blit(over, (WIDTH//2 - over.get_width()//2, HEIGHT//2 - over.get_height()//2 - 20))
             winner = "Empate!"
             if score["p1"] > score["p2"]:
                 winner = "Vitória do P1"
             elif score["p2"] > score["p1"]:
                 winner = "Vitória do P2"
-            wtxt = font.render(winner, True, (255, 220, 220))
+            wtxt = font.render(winner, True, COLOR_WINNER)
             screen.blit(wtxt, (WIDTH//2 - wtxt.get_width()//2, HEIGHT//2 + 20))
 
         pygame.display.flip()

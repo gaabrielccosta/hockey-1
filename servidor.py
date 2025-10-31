@@ -7,13 +7,13 @@ import select
 import argparse
 from config import *
 
-# --------- Helpers de framing ---------
+# Manda as informações do estado do jogo
 def send_json(sock, obj):
     data = json.dumps(obj, separators=(",", ":")).encode("utf-8")
     header = struct.pack("!I", len(data))
     sock.sendall(header + data)
 
-# Consome um bytearray e rende mensagens JSON completas (se houver)
+# Consome um bytearray e rende mensagens JSON completas
 def recv_frames(buffer):
     out = []
     while True:
@@ -206,8 +206,8 @@ def main():
             state.ball_y += state.ball_vy * dt
 
             # colisão com teto/solo
-            top = MARGIN - 10
-            bottom = HEIGHT - MARGIN + 10
+            top = MARGIN - 5
+            bottom = HEIGHT - MARGIN + 5
             if state.ball_y - BALL_SIZE/2 < top:
                 state.ball_y = top + BALL_SIZE/2
                 state.ball_vy *= -1
@@ -226,16 +226,59 @@ def main():
                 BALL_SIZE, BALL_SIZE
             )
 
-            # paddle 1 (esquerda)
+            # ---------------- Paddle 1 (esquerda) ----------------
             p1_rect = paddle_rect(p1x, state.p1_y)
-            if aabb_overlap(*p1_rect, *ball_rect) and state.ball_vx < 0:
-                rel = ((state.ball_y) - (state.p1_y + PADDLE_H/2)) / (PADDLE_H/2)
-                rel = clamp(rel, -1, 1)
-                ang = math.radians(BALL_ANGLE_MAX_DEG) * rel
-                speed = min(math.hypot(state.ball_vx, state.ball_vy) + BALL_SPEED_INC_ON_HIT, BALL_SPEED_MAX)
-                state.ball_vx =  speed * math.cos(ang)
-                state.ball_vy =  speed * math.sin(ang)
-                state.ball_x = p1x + PADDLE_W + BALL_SIZE/2 + 1
+            if aabb_overlap(*p1_rect, *ball_rect):
+                # Checa se a colisão é vertical (topo/base) ou lateral (frente/trás)
+                bx, by, bw, bh = ball_rect
+                px, py, pw, ph = p1_rect
+
+                overlap_left   = (bx + bw) - px
+                overlap_right  = (px + pw) - bx
+                overlap_top    = (by + bh) - py
+                overlap_bottom = (py + ph) - by
+
+                min_ox = min(overlap_left, overlap_right)
+                min_oy = min(overlap_top, overlap_bottom)
+
+                r = BALL_SIZE / 2.0
+
+                if min_oy < min_ox:
+                    # --- Colisão no TOPO/BASE do paddle: reflete vy e reposiciona fora ---
+                    if overlap_top < overlap_bottom:
+                        # bateu no topo do paddle
+                        state.ball_y = py - r - 0.1
+                        state.ball_vy = -abs(state.ball_vy) if abs(state.ball_vy) > 1e-6 else -(BALL_SPEED * 0.6)
+                    else:
+                        # bateu na base do paddle
+                        state.ball_y = py + ph + r + 0.1
+                        state.ball_vy =  abs(state.ball_vy) if abs(state.ball_vy) > 1e-6 else  (BALL_SPEED * 0.6)
+
+                    # Pequena "pimenta" horizontal baseada na altura do impacto (opcional, mantém sensação de controle)
+                    rel = ((state.ball_y) - (state.p1_y + PADDLE_H/2)) / (PADDLE_H/2)
+                    rel = clamp(rel, -1, 1)
+                    state.ball_vx = clamp(state.ball_vx + rel * (BALL_SPEED_INC_ON_HIT * 0.2), -BALL_SPEED_MAX, BALL_SPEED_MAX)
+
+                else:
+                    # --- Colisão LATERAL (frente/trás) -> mantém sua lógica existente ---
+                    if state.ball_vx < 0:
+                        # frente (bola indo para a esquerda)
+                        rel = ((state.ball_y) - (state.p1_y + PADDLE_H/2)) / (PADDLE_H/2)
+                        rel = clamp(rel, -1, 1)
+                        ang = math.radians(BALL_ANGLE_MAX_DEG) * rel
+                        speed = min(math.hypot(state.ball_vx, state.ball_vy) + BALL_SPEED_INC_ON_HIT, BALL_SPEED_MAX)
+                        state.ball_vx =  speed * math.cos(ang)
+                        state.ball_vy =  speed * math.sin(ang)
+                        state.ball_x = p1x + PADDLE_W + r + 1
+                    else:
+                        # por trás (bola indo para a direita)
+                        rel = ((state.ball_y) - (state.p1_y + PADDLE_H/2)) / (PADDLE_H/2)
+                        rel = clamp(rel, -1, 1)
+                        ang = math.radians(BALL_ANGLE_MAX_DEG) * rel
+                        speed = min(math.hypot(state.ball_vx, state.ball_vy) + BALL_SPEED_INC_ON_HIT, BALL_SPEED_MAX)
+                        state.ball_vx = -speed * math.cos(ang)
+                        state.ball_vy =  speed * math.sin(ang)
+                        state.ball_x = p1x - r - 1
 
             # Recalcula ball_rect novamente (posições podem ter mudado)
             ball_rect = (
@@ -244,16 +287,55 @@ def main():
                 BALL_SIZE, BALL_SIZE
             )
 
-            # paddle 2 (direita)
+            # ---------------- Paddle 2 (direita) ----------------
             p2_rect = paddle_rect(p2x, state.p2_y)
-            if aabb_overlap(*p2_rect, *ball_rect) and state.ball_vx > 0:
-                rel = ((state.ball_y) - (state.p2_y + PADDLE_H/2)) / (PADDLE_H/2)
-                rel = clamp(rel, -1, 1)
-                ang = math.radians(BALL_ANGLE_MAX_DEG) * rel
-                speed = min(math.hypot(state.ball_vx, state.ball_vy) + BALL_SPEED_INC_ON_HIT, BALL_SPEED_MAX)
-                state.ball_vx = -speed * math.cos(ang)
-                state.ball_vy =  speed * math.sin(ang)
-                state.ball_x = p2x - BALL_SIZE/2 - 1
+            if aabb_overlap(*p2_rect, *ball_rect):
+                bx, by, bw, bh = ball_rect
+                px, py, pw, ph = p2_rect
+
+                overlap_left   = (bx + bw) - px
+                overlap_right  = (px + pw) - bx
+                overlap_top    = (by + bh) - py
+                overlap_bottom = (py + ph) - by
+
+                min_ox = min(overlap_left, overlap_right)
+                min_oy = min(overlap_top, overlap_bottom)
+
+                r = BALL_SIZE / 2.0
+
+                if min_oy < min_ox:
+                    # --- Colisão no TOPO/BASE do paddle ---
+                    if overlap_top < overlap_bottom:
+                        state.ball_y = py - r - 0.1
+                        state.ball_vy = -abs(state.ball_vy) if abs(state.ball_vy) > 1e-6 else -(BALL_SPEED * 0.6)
+                    else:
+                        state.ball_y = py + ph + r + 0.1
+                        state.ball_vy =  abs(state.ball_vy) if abs(state.ball_vy) > 1e-6 else  (BALL_SPEED * 0.6)
+
+                    rel = ((state.ball_y) - (state.p2_y + PADDLE_H/2)) / (PADDLE_H/2)
+                    rel = clamp(rel, -1, 1)
+                    state.ball_vx = clamp(state.ball_vx + rel * (BALL_SPEED_INC_ON_HIT * 0.2), -BALL_SPEED_MAX, BALL_SPEED_MAX)
+
+                else:
+                    # --- Colisão LATERAL (frente/trás) ---
+                    if state.ball_vx > 0:
+                        # frente (bola indo para a direita)
+                        rel = ((state.ball_y) - (state.p2_y + PADDLE_H/2)) / (PADDLE_H/2)
+                        rel = clamp(rel, -1, 1)
+                        ang = math.radians(BALL_ANGLE_MAX_DEG) * rel
+                        speed = min(math.hypot(state.ball_vx, state.ball_vy) + BALL_SPEED_INC_ON_HIT, BALL_SPEED_MAX)
+                        state.ball_vx = -speed * math.cos(ang)
+                        state.ball_vy =  speed * math.sin(ang)
+                        state.ball_x = p2x - r - 1
+                    else:
+                        # por trás (bola indo para a esquerda)
+                        rel = ((state.ball_y) - (state.p2_y + PADDLE_H/2)) / (PADDLE_H/2)
+                        rel = clamp(rel, -1, 1)
+                        ang = math.radians(BALL_ANGLE_MAX_DEG) * rel
+                        speed = min(math.hypot(state.ball_vx, state.ball_vy) + BALL_SPEED_INC_ON_HIT, BALL_SPEED_MAX)
+                        state.ball_vx =  speed * math.cos(ang)
+                        state.ball_vy =  speed * math.sin(ang)
+                        state.ball_x = p2x + pw + r + 1
 
             # --- GOLS por CRUZAMENTO e REBATES nas goleiras ---
             r = BALL_SIZE / 2
@@ -299,6 +381,26 @@ def main():
                 if bx_right_cur >= RIGHT_GOAL_X_BACK + 30:
                     state.ball_vx = -abs(state.ball_vx)
                     state.ball_x  = RIGHT_GOAL_X_BACK + 30 - r - 0.1
+
+                # 3b) Boca do gol: rebate quando a bola vem por trás (sem contar gol)
+                # Esquerda: bola está DENTRO (x < LEFT_GOAL_X_FRONT) e cruza o plano frontal indo para fora (→)
+                if state.ball_vx > 0 and bx_left_prev < LEFT_GOAL_X_FRONT and bx_left_cur >= LEFT_GOAL_X_FRONT:
+                    denom = (bx_left_cur - bx_left_prev) or 1e-9
+                    t = (LEFT_GOAL_X_FRONT - bx_left_prev) / denom
+                    y_cross = prev_y + t * (state.ball_y - prev_y)
+                    if GOAL_Y0 <= y_cross <= GOAL_Y1:
+                        state.ball_vx = -abs(state.ball_vx)
+                        state.ball_x  = LEFT_GOAL_X_FRONT - r - 0.1
+
+                # Direita: bola está DENTRO (x > RIGHT_GOAL_X_FRONT) e cruza o plano frontal indo para fora (←)
+                if state.ball_vx < 0 and bx_right_prev > RIGHT_GOAL_X_FRONT and bx_right_cur <= RIGHT_GOAL_X_FRONT:
+                    denom = (bx_right_prev - bx_right_cur) or 1e-9
+                    t = (bx_right_prev - RIGHT_GOAL_X_FRONT) / denom
+                    y_cross = prev_y + t * (state.ball_y - prev_y)
+                    if GOAL_Y0 <= y_cross <= GOAL_Y1:
+                        state.ball_vx =  abs(state.ball_vx)
+                        state.ball_x  = RIGHT_GOAL_X_FRONT + r + 0.1
+
 
                 # 4) Travessão e base por CRUZAMENTO VERTICAL dentro da profundidade do gol
                 # Faixas finas centradas na linha de gol da frente (boca)
